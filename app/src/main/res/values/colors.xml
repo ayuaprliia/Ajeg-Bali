@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <color name="ajeg_primary">#996630</color>    <color name="ajeg_secondary">#A6B697</color>  <color name="ajeg_dark">#7A876F</color>       <color name="purple_500">@color/ajeg_primary</color>
+
+    <color name="purple_700">@color/black</color>
+
+    <color name="purple_200">@color/ajeg_secondary</color>
+    <color name="teal_200">@color/ajeg_secondary</color>
+    <color name="teal_700">@color/ajeg_dark</color>
+</resources>
