@@ -14,9 +14,10 @@
         android:gravity="center_horizontal">
 
         <TextView
+            android:id="@+id/tvResultTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Hasil Klasifikasi Jejahitan"
+            android:text="Hasil Klasifikasi"
             android:textSize="20sp"
             android:textStyle="bold"
             android:textColor="#8F9E8B"
@@ -56,7 +57,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Jenis jejahitan:"
+                android:text="Objek Terdeteksi:"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="#333333"
@@ -125,7 +126,7 @@
             android:id="@+id/btnBack"
             android:layout_width="match_parent"
             android:layout_height="55dp"
-            android:text="Kenali Jejahitan Lain"
+            android:text="Kenali Objek Lain"
             android:backgroundTint="#8F9E8B"
             android:textStyle="bold"
             android:layout_marginTop="10dp"

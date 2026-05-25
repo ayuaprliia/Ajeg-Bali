@@ -35,6 +35,11 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+
+    androidResources {
+        noCompress.add("tflite")
+        noCompress.add("ptl")
+    }
 }
 
 dependencies {
@@ -68,4 +73,14 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+
+    // --- TENSORFLOW LITE (VERSI SUDAH DIRAPIKAN) ---
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
+
+
+
 }

@@ -14,6 +14,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import com.example.myapp.KetupatClassifier // Pastikan package ini sesuai
 
 // Import Gson
 import com.google.gson.Gson
@@ -52,7 +53,7 @@ import java.util.regex.Pattern
 import kotlin.math.exp
 
 // ==========================================
-// 1. STRUKTUR DATA GROQ API (Disatukan di sini)
+// 1. STRUKTUR DATA GROQ API
 // ==========================================
 data class GroqRequest(
     @SerializedName("model") val model: String,
@@ -90,6 +91,11 @@ data class JejahitanResultModel(
     val link_youtube_pembuatan: String
 )
 
+data class KetupatResultModel(
+    val deskripsi: String,
+    val youtube: String
+)
+
 // ==========================================
 // 3. KELAS UTAMA ACTIVITY
 // ==========================================
@@ -106,30 +112,45 @@ class ResultActivity : AppCompatActivity() {
     private lateinit var lblVideo: TextView
     private lateinit var cardYoutube: CardView
 
-    // AI & Data Variables
+    // --- VARIABEL KATEGORI ---
+    private var kategori: String = "JEJAHITAN" // Default
+
+    // --- VARIABEL MODEL JEJAHITAN (PYTORCH) ---
     private var mModule: Module? = null
-    private var jsonData: List<JejahitanResultModel> = emptyList()
-
-    // --- VARIABEL GROQ RETROFIT ---
-    private val groqApiKey = "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"
-    private lateinit var groqApiService: GroqApiService
-
-    // --- VARIABEL YOUTUBE ---
-    private var currentYouTubePlayer: YouTubePlayer? = null
-    private var pendingVideoId: String? = null
-
-    // DAFTAR KELAS
-    private val classNames = arrayOf(
+    private var jsonDataJejahitan: List<JejahitanResultModel> = emptyList()
+    private val classNamesJejahitan = arrayOf(
         "Ceniga", "Ceper", "Ituk-ituk", "Kulit Peras", "Sampian Gantung", "Sampian Kwangen", "Sampian Padma",
         "Sampian Penyeneng", "Sampian Peras", "Sampian Plaus", "Sampian Sesayut",
         "Sampian Sri Keliki", "Taledan", "Tamas", "Sampian Penjor", "Lis Senjata", "Sampian Soda", "Sampian Duras"
     )
 
+    // --- VARIABEL MODEL KETUPAT (TFLITE) ---
+    private var ketupatClassifier: KetupatClassifier? = null
+    private var jsonDataKetupat: Map<String, KetupatResultModel> = emptyMap()
+
+    // --- VARIABEL GROQ & YOUTUBE ---
+    private val groqApiKey = "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" // MASUKKAN API KEY ANDA
+    private lateinit var groqApiService: GroqApiService
+    private var currentYouTubePlayer: YouTubePlayer? = null
+    private var pendingVideoId: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_result)
 
-        // Hubungkan Komponen UI
+        // 1. Terima Kategori dari ScanActivity
+        kategori = intent.getStringExtra("EXTRA_KATEGORI") ?: "JEJAHITAN"
+
+        // --- [PERBAIKAN UI DINAMIS] ---
+        // Catatan: Pastikan TextView yang menjadi judul halaman di activity_result.xml memiliki ID tvResultTitle
+        val tvResultTitle = findViewById<TextView>(R.id.tvResultTitle)
+        if (kategori == "KETUPAT") {
+            tvResultTitle?.text = "Hasil Klasifikasi Ketupat"
+        } else {
+            tvResultTitle?.text = "Hasil Klasifikasi Jejahitan"
+        }
+
+        // 2. Hubungkan Komponen UI
         imgResult = findViewById(R.id.imgResult)
         txtPrediction = findViewById(R.id.txtPrediction)
         txtInferenceTime = findViewById(R.id.txtInferenceTime)
@@ -140,7 +161,6 @@ class ResultActivity : AppCompatActivity() {
         lblVideo = findViewById(R.id.lblVideo)
         cardYoutube = findViewById(R.id.cardYoutube)
 
-        // Setup Retrofit untuk Groq API
         setupGroqApiClient()
 
         // Setup YouTube Player
@@ -154,55 +174,98 @@ class ResultActivity : AppCompatActivity() {
             }
         })
 
-        // Load Data JSON Lokal
-        jsonData = loadDataFromJson()
+        // 3. Persiapan Awal
         progressBar.visibility = View.VISIBLE
         txtPrediction.text = "Menganalisis..."
         txtInferenceTime.text = ""
         txtDescription.text = "Mohon tunggu sebentar..."
         hideVideoSection()
 
-        // Jalankan PyTorch di Background
-        Thread {
-            loadModelAndRunInference()
-        }.start()
+        // 4. Proses Eksekusi Berdasarkan Kategori
+        if (kategori == "KETUPAT") {
+            jsonDataKetupat = loadKetupatDataFromJson()
+            // Inisialisasi TFLite di Main Thread (Cepat)
+            ketupatClassifier = KetupatClassifier(this)
+
+            // Tampilkan Gambar dan Lakukan Inferensi
+            val imageUriString = intent.getStringExtra("image_uri")
+            if (imageUriString != null) {
+                val uri = Uri.parse(imageUriString)
+                imgResult.setImageURI(uri)
+                val bitmap = uriToBitmap(uri)
+                if (bitmap != null) {
+                    runInferenceKetupat(bitmap)
+                }
+            }
+        } else {
+            // Logika Jejahitan (PyTorch)
+            jsonDataJejahitan = loadJejahitanDataFromJson()
+            Thread {
+                loadModelAndRunInferenceJejahitan()
+            }.start()
+        }
 
         btnBack.setOnClickListener { finish() }
     }
 
-    // Fungsi inisialisasi Retrofit secara langsung
-    private fun setupGroqApiClient() {
-        val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+    // ==========================================
+    // LOGIKA INFERENSI KETUPAT (TFLITE)
+    // ==========================================
+    private fun runInferenceKetupat(bitmap: Bitmap) {
+        if (ketupatClassifier == null) return
+
+        // Panggil fungsi klasifikasi dari KetupatClassifier
+        val hasil = ketupatClassifier!!.klasifikasiGambar(bitmap)
+
+        progressBar.visibility = View.GONE
+        txtInferenceTime.text = "Waktu komputasi: ${hasil.waktuEksekusi} ms"
+
+        val THRESHOLD = 0.50f
+        if (hasil.confidence >= THRESHOLD) {
+            val detectedClass = hasil.label
+            val confidencePercent = (hasil.confidence * 100).toInt()
+
+            txtPrediction.text = "[$confidencePercent%] Ketupat $detectedClass"
+            txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
+
+            // Cari di JSON
+            val detailItem = jsonDataKetupat[detectedClass]
+            if (detailItem != null) {
+                txtDescription.text = "Memperhalus deskripsi dengan AI..."
+                txtDescription.setTextColor(Color.GRAY)
+                prepareVideo(detailItem.youtube)
+
+                // Gunakan model generik untuk LLM
+                refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
+            } else {
+                txtDescription.text = "Deskripsi belum tersedia."
+                hideVideoSection()
+            }
+        } else {
+            txtPrediction.text = "Objek Tidak Dikenali"
+            txtPrediction.setTextColor(Color.RED)
+            val conf = (hasil.confidence * 100).toInt()
+            txtDescription.text = "AI kurang yakin ($conf%). Coba foto dari sudut lain."
+            hideVideoSection()
         }
-        val okHttpClient = OkHttpClient.Builder()
-            .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
-        val retrofit = Retrofit.Builder()
-            .baseUrl("https://api.groq.com/")
-            .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        groqApiService = retrofit.create(GroqApiService::class.java)
     }
 
-    private fun loadModelAndRunInference() {
+    // ==========================================
+    // LOGIKA INFERENSI JEJAHITAN (PYTORCH)
+    // ==========================================
+    private fun loadModelAndRunInferenceJejahitan() {
         try {
             if (mModule == null) {
                 val modelPath = assetFilePath(this, "jejahitan_mobile.ptl")
                 mModule = LiteModuleLoader.load(modelPath)
             }
-
             val imageUriString = intent.getStringExtra("image_uri")
             if (imageUriString != null) {
                 val uri = Uri.parse(imageUriString)
                 runOnUiThread { imgResult.setImageURI(uri) }
-
                 val bitmap = uriToBitmap(uri)
                 if (bitmap != null && mModule != null) {
-                    runInference(bitmap)
+                    runInferenceJejahitan(bitmap)
                 }
             }
         } catch (e: Exception) {
@@ -215,12 +278,10 @@ class ResultActivity : AppCompatActivity() {
         }
     }
 
-    private fun runInference(bitmap: Bitmap) {
+    private fun runInferenceJejahitan(bitmap: Bitmap) {
         val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 256, 256, true)
         val inputTensor = TensorImageUtils.bitmapToFloat32Tensor(
-            resizedBitmap,
-            TensorImageUtils.TORCHVISION_NORM_MEAN_RGB,
-            TensorImageUtils.TORCHVISION_NORM_STD_RGB
+            resizedBitmap, TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB
         )
 
         val startTime = System.nanoTime()
@@ -245,25 +306,23 @@ class ResultActivity : AppCompatActivity() {
             val THRESHOLD = 0.50f
             txtInferenceTime.text = "Waktu komputasi: ${inferenceTimeMs} ms"
 
-            if (maxScoreIdx >= 0 && maxScoreIdx < classNames.size) {
+            if (maxScoreIdx >= 0 && maxScoreIdx < classNamesJejahitan.size) {
                 val confidencePercent = (maxScore * 100).toInt()
 
                 if (maxScore >= THRESHOLD) {
-                    val detectedClass = classNames[maxScoreIdx]
+                    val detectedClass = classNamesJejahitan[maxScoreIdx]
                     txtPrediction.text = "[$confidencePercent%] $detectedClass"
                     txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
 
-                    val detailItem = jsonData.find {
-                        it.nama_jejahitan.equals(detectedClass, ignoreCase = true)
-                    }
+                    val detailItem = jsonDataJejahitan.find { it.nama_jejahitan.equals(detectedClass, ignoreCase = true) }
 
                     if (detailItem != null) {
                         txtDescription.text = "Memperhalus deskripsi dengan AI..."
                         txtDescription.setTextColor(Color.GRAY)
                         prepareVideo(detailItem.link_youtube_pembuatan)
 
-                        // Panggil Groq API menggunakan Retrofit
-                        refineDescriptionWithGroq(detailItem)
+                        // Panggil Groq API
+                        refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
                     } else {
                         txtDescription.text = "Deskripsi belum tersedia."
                         hideVideoSection()
@@ -271,7 +330,7 @@ class ResultActivity : AppCompatActivity() {
                 } else {
                     txtPrediction.text = "Objek Tidak Dikenali"
                     txtPrediction.setTextColor(Color.RED)
-                    txtDescription.text = "AI kurang yakin ($confidencePercent%)."
+                    txtDescription.text = "AI kurang yakin ($confidencePercent%). Coba foto dari sudut lain."
                     hideVideoSection()
                 }
             } else {
@@ -281,29 +340,28 @@ class ResultActivity : AppCompatActivity() {
         }
     }
 
-    // Fungsi memanggil API Groq
-    private fun refineDescriptionWithGroq(detailItem: JejahitanResultModel) {
+    // ==========================================
+    // FUNGSI GROQ API YANG DISATUKAN
+    // ==========================================
+    private fun refineDescriptionWithGroq(namaObjek: String, deskripsiAsli: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Buat prompt yang optimal untuk meringkas dan memperhalus
-                // 1. Buat prompt yang jauh lebih tegas
+                // Konteks Dinamis
+                val jenis = if (kategori == "KETUPAT") "Ketupat" else "Jejahitan"
+
                 val systemPrompt = """
-                    Kamu adalah ahli budaya Bali. Tugasmu meringkas deskripsi seni tradisional Bali menjadi 1 paragraf padat.
-                    
+                    Kamu adalah ahli budaya Bali. Tugasmu meringkas deskripsi $jenis Bali menjadi 1 paragraf padat.
                     ATURAN KETAT:
-                    1. LANGSUNG tuliskan isi ringkasan. DILARANG KERAS menggunakan kalimat pengantar/basa-basi (seperti "Berikut adalah...", "Ini ringkasannya...", dll).
+                    1. LANGSUNG tuliskan isi ringkasan. DILARANG KERAS basa-basi.
                     2. DILARANG KERAS menggunakan format Markdown (seperti bintang ganda ** untuk bold).
-                    3. Jangan gunakan format daftar (bullet points) atau numbering.
-                    4. Buat ringkasan yang padat dan mudah dipahami
-                    5. Gunakan bahasa Indonesia yang sopan dan profesional
-                    6. Pertahankan makna dan nilai budaya asli
-                    7. Hindari penggunaan kata-kata yang terlalu teknis atau rumit
-                    8. Tambahkan sentuhan yang menunjukkan kekayaan budaya Bali
+                    3. Jangan gunakan format daftar (bullet points).
+                    4. Buat ringkasan padat, informatif, dan mudah dipahami.
+                    5. Gunakan bahasa Indonesia profesional namun hangat.
                 """.trimIndent()
 
                 val userPrompt = """
-                    Ringkas deskripsi Jejahitan "${detailItem.nama_jejahitan}" berikut:
-                    ${detailItem.deskripsi}
+                    Ringkas deskripsi $jenis "${namaObjek}" berikut:
+                    ${deskripsiAsli}
                 """.trimIndent()
 
                 val request = GroqRequest(
@@ -314,38 +372,63 @@ class ResultActivity : AppCompatActivity() {
                     )
                 )
 
-                val response = groqApiService.getChatCompletion(
-                    authorization = "Bearer $groqApiKey",
-                    request = request
-                )
-
-                // 2. Tambahkan pembersih teks ganda (menghilangkan sisa bintang jika AI masih bandel)
+                val response = groqApiService.getChatCompletion("Bearer $groqApiKey", request)
                 val aiResponseText = response.choices?.firstOrNull()?.message?.content
-                    ?.replace("**", "")
-                    ?.replace("*", "")
+                    ?.replace("**", "")?.replace("*", "")
 
                 withContext(Dispatchers.Main) {
                     if (!aiResponseText.isNullOrBlank()) {
                         txtDescription.text = aiResponseText.trim()
                         txtDescription.setTextColor(Color.DKGRAY)
                     } else {
-                        txtDescription.text = detailItem.deskripsi
+                        txtDescription.text = deskripsiAsli
                         txtDescription.setTextColor(Color.DKGRAY)
                     }
                 }
-
             } catch (e: Exception) {
-                Log.e("GroqAPI", "Gagal menghubungi API Groq: ${e.message}", e)
+                Log.e("GroqAPI", "Gagal menghubungi API Groq", e)
                 withContext(Dispatchers.Main) {
-                    // Fallback ke teks asli jika gagal internet
-                    txtDescription.text = detailItem.deskripsi
+                    txtDescription.text = deskripsiAsli
                     txtDescription.setTextColor(Color.DKGRAY)
                 }
             }
         }
     }
 
-    // --- LOGIKA VIDEO YOUTUBE ---
+    // ==========================================
+    // FUNGSI PENDUKUNG (JSON, YOUTUBE, DLL)
+    // ==========================================
+    private fun setupGroqApiClient() {
+        val loggingInterceptor = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val retrofit = Retrofit.Builder()
+            .baseUrl("https://api.groq.com/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+        groqApiService = retrofit.create(GroqApiService::class.java)
+    }
+
+    private fun loadJejahitanDataFromJson(): List<JejahitanResultModel> {
+        return try {
+            val jsonString = assets.open("data_jejahitan.json").bufferedReader().use { it.readText() }
+            val listType = object : TypeToken<List<JejahitanResultModel>>() {}.type
+            Gson().fromJson(jsonString, listType)
+        } catch (e: Exception) { emptyList() }
+    }
+
+    private fun loadKetupatDataFromJson(): Map<String, KetupatResultModel> {
+        return try {
+            val jsonString = assets.open("data_ketupat.json").bufferedReader().use { it.readText() }
+            val mapType = object : TypeToken<Map<String, KetupatResultModel>>() {}.type
+            Gson().fromJson(jsonString, mapType)
+        } catch (e: Exception) { emptyMap() }
+    }
+
     private fun prepareVideo(url: String) {
         val videoId = getYoutubeVideoId(url)
         if (videoId != null) {
@@ -368,15 +451,6 @@ class ResultActivity : AppCompatActivity() {
         val compiledPattern = Pattern.compile(pattern)
         val matcher = compiledPattern.matcher(url)
         return if (matcher.find()) matcher.group() else null
-    }
-
-    // --- UTILS ---
-    private fun loadDataFromJson(): List<JejahitanResultModel> {
-        return try {
-            val jsonString = assets.open("data_jejahitan.json").bufferedReader().use { it.readText() }
-            val listType = object : TypeToken<List<JejahitanResultModel>>() {}.type
-            Gson().fromJson(jsonString, listType)
-        } catch (e: Exception) { emptyList() }
     }
 
     private fun softmax(logits: FloatArray): FloatArray {
@@ -417,5 +491,10 @@ class ResultActivity : AppCompatActivity() {
                 return file.absolutePath
             }
         } catch (e: Exception) { throw RuntimeException("Error copy asset", e) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ketupatClassifier?.tutupModel() // Jangan lupa tutup TFLite untuk mencegah Memory Leak
     }
 }

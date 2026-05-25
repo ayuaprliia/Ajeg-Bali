@@ -48,7 +48,14 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <activity
+            android:name=".WayangScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <activity android:name=".ResultActivity" />
+        <activity android:name=".WayangResultActivity" />
+        <activity android:name=".WayangDetailActivity" />
 
     </application>
 
