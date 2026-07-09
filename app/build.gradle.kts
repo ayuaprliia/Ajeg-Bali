@@ -40,6 +40,12 @@ android {
         noCompress.add("tflite")
         noCompress.add("ptl")
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
@@ -73,6 +79,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
 
     // --- TENSORFLOW LITE (VERSI SUDAH DIRAPIKAN) ---

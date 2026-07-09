@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:maxWidth="300dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="top">
+
+            <!-- Bot avatar -->
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:text="🪷"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:layout_marginEnd="6dp"
+                android:layout_marginTop="2dp" />
+
+            <TextView
+                android:id="@+id/tvBotMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chat_bot_bubble"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="10dp"
+                android:textColor="#2C1A0E"
+                android:textSize="14sp"
+                android:lineSpacingMultiplier="1.4" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvBotTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:layout_marginTop="3dp"
+            android:layout_marginStart="34dp"
+            android:textColor="#B8A898"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

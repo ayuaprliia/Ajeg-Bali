@@ -56,6 +56,10 @@
         <activity android:name=".ResultActivity" />
         <activity android:name=".WayangResultActivity" />
         <activity android:name=".WayangDetailActivity" />
+        <activity
+            android:name=".ChatbotActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
 
     </application>
 

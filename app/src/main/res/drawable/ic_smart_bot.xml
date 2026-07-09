@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Robot head with chat bubble - Smart Bot icon -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M17.753,14C17.917,13.352 18,12.684 18,12C18,8.686 15.314,6 12,6C8.686,6 6,8.686 6,12C6,12.684 6.083,13.352 6.247,14" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,2C13.1,2 14,2.9 14,4C14,4.37 13.88,4.71 13.68,5C16.95,5.06 19.56,7.58 19.96,10.8L21,11V13L19.96,13.2C19.56,16.42 16.95,18.94 13.68,19H10.32C7.05,18.94 4.44,16.42 4.04,13.2L3,13V11L4.04,10.8C4.44,7.58 7.05,5.06 10.32,5C10.12,4.71 10,4.37 10,4C10,2.9 10.9,2 12,2ZM9,11C8.448,11 8,11.448 8,12C8,12.552 8.448,13 9,13C9.552,13 10,12.552 10,12C10,11.448 9.552,11 9,11ZM15,11C14.448,11 14,11.448 14,12C14,12.552 14.448,13 15,13C15.552,13 16,12.552 16,12C16,11.448 15.552,11 15,11Z" />
+    <path
+        android:pathData="M8.5,17.5C8.5,17.5 9.75,19 12,19C14.25,19 15.5,17.5 15.5,17.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="@android:color/white"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M5,20L5,22L8,22L8,20Z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M16,20L16,22L19,22L19,20Z" />
+</vector>

@@ -1,9 +1,11 @@
 package com.example.ajegbali
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,6 +47,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 else -> false
             }
+        }
+
+        // --- FAB CHATBOT ---
+        val fabChatbot = findViewById<FloatingActionButton>(R.id.fabChatbot)
+        fabChatbot.setOnClickListener {
+            val intent = Intent(this, ChatbotActivity::class.java)
+            startActivity(intent)
         }
     }
 

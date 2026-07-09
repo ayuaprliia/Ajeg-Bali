@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/menu_home"
+        android:icon="@drawable/home"
+        android:title="Home" />
+
+    <item
+        android:id="@+id/menu_jejahitan"
+        android:icon="@drawable/jejahitan_button"
+        android:title="Jejahitan" />
+
+    <item
+        android:id="@+id/menu_ketupat"
+        android:icon="@drawable/ketupat_button"
+        android:title="Ketupat" />
+
+    <item
+        android:id="@+id/menu_wayang"
+        android:icon="@drawable/wayang_button"
+        android:title="Wayang" />
+</menu>
