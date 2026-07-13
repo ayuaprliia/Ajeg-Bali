@@ -3,6 +3,8 @@ package com.example.ajegbali.feature.wayang
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -17,7 +19,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.cardview.widget.CardView
 import androidx.core.content.ContextCompat
+import com.example.ajegbali.BuildConfig
 import com.example.ajegbali.R
+import com.example.ajegbali.data.remote.websocket.WayangWebSocketClient
+import com.example.ajegbali.ml.wayang.WayangDetectionResult
+import com.example.ajegbali.ui.WayangBoundingBoxView
+import com.example.ajegbali.utils.ImageUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -25,12 +35,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Activity untuk capture foto wayang dan mengirimkannya ke WayangResultActivity.
- * Deteksi dilakukan di backend menggunakan PredictionRepository.
+ * Activity untuk capture foto wayang dan deteksi real-time menggunakan WebSocket.
  */
 class WayangScanActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
+    private lateinit var boundingBoxView: WayangBoundingBoxView
     private lateinit var progressBar: ProgressBar
     private lateinit var statusText: TextView
     private lateinit var btnCapture: CardView
@@ -39,8 +49,12 @@ class WayangScanActivity : AppCompatActivity() {
     private lateinit var btnBack: ImageView
 
     private var imageCapture: ImageCapture? = null
+    private var imageAnalysis: ImageAnalysis? = null
     private var cameraExecutor: ExecutorService? = null
     private var cameraSelector: CameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+    private var wsClient: WayangWebSocketClient? = null
+    private var isWsProcessing = false
 
     companion object {
         const val TAG = "WayangScan"
@@ -74,6 +88,7 @@ class WayangScanActivity : AppCompatActivity() {
 
         // Initialize UI
         previewView = findViewById(R.id.previewView)
+        boundingBoxView = findViewById(R.id.boundingBoxView)
         progressBar = findViewById(R.id.progressBar)
         statusText = findViewById(R.id.statusText)
         btnCapture = findViewById(R.id.btnCapture)
@@ -81,9 +96,11 @@ class WayangScanActivity : AppCompatActivity() {
         btnSwitchCamera = findViewById(R.id.btnSwitchCamera)
         btnBack = findViewById(R.id.btnBack)
 
-        statusText.text = "Siap untuk memotret"
+        statusText.text = "Mencoba menghubungkan..."
 
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        setupWebSocket()
 
         btnCapture.setOnClickListener { takePhoto() }
         btnGallery.setOnClickListener { selectFromGallery() }
@@ -104,6 +121,33 @@ class WayangScanActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupWebSocket() {
+        val baseUrl = BuildConfig.API_BASE_URL.replace("http", "ws")
+        val wsUrl = "$baseUrl/ws/detect-wayang"
+        
+        wsClient = WayangWebSocketClient(
+            url = wsUrl,
+            onResult = { detections ->
+                runOnUiThread {
+                    boundingBoxView.setDetections(detections, 640, 640) // Backend scales to 640
+                    statusText.text = if (detections.isNotEmpty()) {
+                        "Terdeteksi: ${detections.joinToString { it.characterName }}"
+                    } else {
+                        "Mencari wayang..."
+                    }
+                }
+                isWsProcessing = false
+            },
+            onError = { error ->
+                runOnUiThread {
+                    statusText.text = "Koneksi Bermasalah: $error"
+                }
+                isWsProcessing = false
+            }
+        )
+        wsClient?.connect()
+    }
+
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
@@ -114,18 +158,57 @@ class WayangScanActivity : AppCompatActivity() {
 
             imageCapture = ImageCapture.Builder().build()
 
+            imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also { analysis ->
+                    analysis.setAnalyzer(cameraExecutor!!) { imageProxy ->
+                        processFrameForRealtime(imageProxy)
+                    }
+                }
+
             try {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
                     this,
                     cameraSelector,
                     preview,
-                    imageCapture
+                    imageCapture,
+                    imageAnalysis
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Camera binding error: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun processFrameForRealtime(imageProxy: ImageProxy) {
+        if (isWsProcessing) {
+            imageProxy.close()
+            return
+        }
+        isWsProcessing = true
+
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                // Convert ImageProxy to Bitmap and then to Base64
+                // We resize to 640 for faster transmission
+                val bitmap = ImageUtils.imageProxyToBitmap(imageProxy)
+                imageProxy.close()
+                
+                val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 640, 640, true)
+                val base64 = ImageUtils.bitmapToBase64(resizedBitmap)
+                
+                wsClient?.sendImage(base64)
+                
+                bitmap.recycle()
+                resizedBitmap.recycle()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing frame for WS", e)
+                imageProxy.close()
+                isWsProcessing = false
+            }
+        }
     }
 
     private fun takePhoto() {
@@ -180,5 +263,6 @@ class WayangScanActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor?.shutdown()
+        wsClient?.close()
     }
 }
