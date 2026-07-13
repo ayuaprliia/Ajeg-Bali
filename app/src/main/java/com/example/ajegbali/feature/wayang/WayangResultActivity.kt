@@ -11,16 +11,15 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
 import com.example.ajegbali.R
+import com.example.ajegbali.data.Result
 import com.example.ajegbali.data.model.WayangCharacter
-import com.example.ajegbali.data.repository.WayangRepository
+import com.example.ajegbali.data.remote.repository.PredictionRepository
+import com.example.ajegbali.data.remote.repository.WayangRepository
+import com.example.ajegbali.data.remote.retrofit.ApiConfig
 import com.example.ajegbali.ml.wayang.WayangDetectionResult
-import com.example.ajegbali.ml.wayang.WayangDetector
 import com.example.ajegbali.feature.ketupat.GroqMessage
 import com.example.ajegbali.feature.ketupat.GroqRequest
 import com.example.ajegbali.feature.ketupat.GroqApiService
-
-// Import Groq API classes (shared from ResultActivity)
-import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -29,11 +28,10 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.Header
-import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 import android.graphics.BitmapFactory
+import java.io.File
+import java.io.FileOutputStream
 
 class WayangResultActivity : AppCompatActivity() {
 
@@ -48,8 +46,8 @@ class WayangResultActivity : AppCompatActivity() {
     private lateinit var containerCharacterInfo: LinearLayout
     private lateinit var txtNoDetection: TextView
 
-    // Detector
-    private var wayangDetector: WayangDetector? = null
+    // Repository
+    private lateinit var predictionRepository: PredictionRepository
 
     // Groq API
     private val groqApiKey = "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"
@@ -69,8 +67,10 @@ class WayangResultActivity : AppCompatActivity() {
         containerCharacterInfo = findViewById(R.id.containerCharacterInfo)
         txtNoDetection = findViewById(R.id.txtNoDetection)
 
-        // Setup
+        // Initialize Repository
+        predictionRepository = PredictionRepository.getInstance(ApiConfig.getInstance())
         setupGroqApiClient()
+
         progressBar.visibility = View.VISIBLE
         txtPrediction.text = "Menganalisis..."
         txtInferenceTime.text = ""
@@ -84,25 +84,15 @@ class WayangResultActivity : AppCompatActivity() {
             finish()
         }
 
-        // Inisialisasi detector
-        try {
-            wayangDetector = WayangDetector(this)
-        } catch (e: Exception) {
-            Log.e("WayangResult", "Gagal memuat model", e)
-            progressBar.visibility = View.GONE
-            txtPrediction.text = "Error"
-            txtNoDetection.text = "Gagal memuat model AI."
-            txtNoDetection.visibility = View.VISIBLE
-            return
-        }
-
         // Ambil gambar dari intent dan jalankan deteksi
         val imageUriString = intent.getStringExtra("image_uri")
         if (imageUriString != null) {
             val uri = Uri.parse(imageUriString)
             val bitmap = uriToBitmap(uri)
-            if (bitmap != null) {
-                runDetection(bitmap)
+            val file = getFileFromUri(uri)
+            
+            if (bitmap != null && file != null) {
+                runDetection(bitmap, file)
             } else {
                 progressBar.visibility = View.GONE
                 txtPrediction.text = "Error"
@@ -112,61 +102,97 @@ class WayangResultActivity : AppCompatActivity() {
         }
     }
 
-    private fun runDetection(originalBitmap: Bitmap) {
-        // Jalankan inferensi di background thread
-        Thread {
+    private fun runDetection(originalBitmap: Bitmap, file: File) {
+        CoroutineScope(Dispatchers.IO).launch {
             try {
-                val startTime = System.nanoTime()
-                val results = wayangDetector?.detect(originalBitmap) ?: emptyList()
-                val endTime = System.nanoTime()
-                val inferenceTimeMs = (endTime - startTime) / 1_000_000
+                val startTime = System.currentTimeMillis()
+                val result = predictionRepository.detectWayang(file)
+                val endTime = System.currentTimeMillis()
+                val inferenceTimeMs = endTime - startTime
 
-                // Gambar bounding box di atas bitmap
-                val annotatedBitmap = drawBoundingBoxes(originalBitmap, results)
-
-                // Pastikan activity masih aktif sebelum update UI
-                if (isFinishing || isDestroyed) return@Thread
-
-                runOnUiThread {
-                    // Double check di main thread
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-
+                withContext(Dispatchers.Main) {
+                    if (isFinishing || isDestroyed) return@withContext
+                    
                     progressBar.visibility = View.GONE
-                    txtInferenceTime.text = "Waktu komputasi: ${inferenceTimeMs} ms"
+                    txtInferenceTime.text = "Waktu komputasi: $inferenceTimeMs ms"
 
-                    // Tampilkan gambar dengan bounding box
-                    imgResult.setImageBitmap(annotatedBitmap)
+                    when (result) {
+                        is Result.Success -> {
+                            val response = result.data
+                            val results = mutableListOf<WayangDetectionResult>()
+                            
+                            Log.d("WayangResult", "Response Success: boxes=${response.boxes?.size}, detections=${response.detections?.size}")
 
-                    if (results.isNotEmpty()) {
-                        // Tampilkan SEMUA hasil deteksi
-                        val totalDetected = results.size
-                        val sortedResults = results.sortedByDescending { it.confidence }
+                            // Format 1: Raw YOLOv8 fields
+                            response.boxes?.forEachIndexed { index, box ->
+                                if (box.size >= 4) {
+                                    val mappedBox = mapToNormalizedRect(box)
+                                    Log.d("WayangResult", "Mapped raw box: $mappedBox")
+                                    results.add(
+                                        WayangDetectionResult(
+                                            classIdx = response.classIds?.getOrNull(index) ?: 0,
+                                            characterName = response.classNames?.getOrNull(index) ?: "Unknown",
+                                            confidence = response.scores?.getOrNull(index) ?: 0f,
+                                            boundingBox = mappedBox
+                                        )
+                                    )
+                                }
+                            }
 
-                        // Tampilkan summary di txtPrediction
-                        if (totalDetected == 1) {
-                            val r = sortedResults[0]
-                            val confidencePercent = (r.confidence * 100).toInt()
-                            txtPrediction.text = "[$confidencePercent%] Wayang ${r.characterName}"
-                        } else {
-                            val names = sortedResults.joinToString(", ") { it.characterName }
-                            txtPrediction.text = "$totalDetected karakter: $names"
+                            // Format 2: Structured detections field
+                            response.detections?.forEach { det ->
+                                val box = det.box
+                                if (box != null && box.size >= 4) {
+                                    val mappedBox = mapToNormalizedRect(box)
+                                    Log.d("WayangResult", "Mapped detection box: $mappedBox")
+                                    results.add(
+                                        WayangDetectionResult(
+                                            classIdx = det.classId ?: 0,
+                                            characterName = det.className ?: "Unknown",
+                                            confidence = det.confidence ?: 0f,
+                                            boundingBox = mappedBox
+                                        )
+                                    )
+                                }
+                            }
+                            
+                            Log.d("WayangResult", "Total detections parsed: ${results.size}")
+
+                            // Gambar bounding box di atas bitmap
+                            val annotatedBitmap = drawBoundingBoxes(originalBitmap, results)
+                            imgResult.setImageBitmap(annotatedBitmap)
+
+                            if (results.isNotEmpty()) {
+                                val sortedResults = results.sortedByDescending { it.confidence }
+                                if (sortedResults.size == 1) {
+                                    val r = sortedResults[0]
+                                    val confidencePercent = (r.confidence * 100).toInt()
+                                    txtPrediction.text = "[$confidencePercent%] Wayang ${r.characterName}"
+                                } else {
+                                    val names = sortedResults.joinToString(", ") { it.characterName }
+                                    txtPrediction.text = "${sortedResults.size} karakter: $names"
+                                }
+                                txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
+                                showAllCharacterInfo(sortedResults)
+                            } else {
+                                txtPrediction.text = "Objek Tidak Dikenali"
+                                txtPrediction.setTextColor(Color.RED)
+                                containerCharacterInfo.visibility = View.GONE
+                                txtNoDetection.visibility = View.VISIBLE
+                            }
                         }
-                        txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
-
-                        // Tampilkan info SEMUA karakter
-                        showAllCharacterInfo(sortedResults)
-                    } else {
-                        txtPrediction.text = "Objek Tidak Dikenali"
-                        txtPrediction.setTextColor(Color.RED)
-                        containerCharacterInfo.visibility = View.GONE
-                        txtNoDetection.visibility = View.VISIBLE
+                        is Result.Error -> {
+                            txtPrediction.text = "Error Deteksi"
+                            txtPrediction.setTextColor(Color.RED)
+                            txtNoDetection.text = result.error
+                            txtNoDetection.visibility = View.VISIBLE
+                        }
+                        else -> {}
                     }
                 }
             } catch (e: Exception) {
                 Log.e("WayangResult", "Error saat deteksi", e)
-                if (isFinishing || isDestroyed) return@Thread
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
                     txtPrediction.text = "Error Deteksi"
                     txtPrediction.setTextColor(Color.RED)
@@ -174,11 +200,10 @@ class WayangResultActivity : AppCompatActivity() {
                     txtNoDetection.visibility = View.VISIBLE
                 }
             }
-        }.start()
+        }
     }
 
     private fun drawBoundingBoxes(original: Bitmap, results: List<WayangDetectionResult>): Bitmap {
-        // Buat salinan bitmap yang bisa digambar
         val mutableBitmap = original.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(mutableBitmap)
 
@@ -207,11 +232,9 @@ class WayangResultActivity : AppCompatActivity() {
             val right = box.right * mutableBitmap.width
             val bottom = box.bottom * mutableBitmap.height
 
-            // Gambar kotak
             val rect = RectF(left, top, right, bottom)
             canvas.drawRect(rect, boxPaint)
 
-            // Gambar label
             val text = "${result.characterName} ${(result.confidence * 100).toInt()}%"
             val textWidth = textPaint.measureText(text)
             val textHeight = textPaint.textSize
@@ -222,10 +245,6 @@ class WayangResultActivity : AppCompatActivity() {
         return mutableBitmap
     }
 
-    /**
-     * Menampilkan info untuk SEMUA karakter yang terdeteksi.
-     * Membuat card secara programatis untuk setiap karakter.
-     */
     private fun showAllCharacterInfo(results: List<WayangDetectionResult>) {
         containerCharacterInfo.removeAllViews()
         containerCharacterInfo.visibility = View.VISIBLE
@@ -239,7 +258,6 @@ class WayangResultActivity : AppCompatActivity() {
             }
         }
 
-        // Jika tidak ada data ditemukan sama sekali
         if (containerCharacterInfo.childCount == 0) {
             containerCharacterInfo.visibility = View.GONE
             txtNoDetection.text = "Data karakter tidak ditemukan."
@@ -247,9 +265,6 @@ class WayangResultActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Membuat CardView secara programatis untuk satu karakter wayang.
-     */
     private fun createCharacterCard(index: Int, result: WayangDetectionResult, wayangData: WayangCharacter): CardView {
         val cardView = CardView(this).apply {
             val params = LinearLayout.LayoutParams(
@@ -268,10 +283,8 @@ class WayangResultActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, pad)
         }
 
-        // Nomor urut + Confidence
         val confidencePercent = (result.confidence * 100).toInt()
 
-        // Nama Karakter
         val tvName = TextView(this).apply {
             text = "Wayang ${wayangData.name}"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
@@ -285,14 +298,12 @@ class WayangResultActivity : AppCompatActivity() {
             layoutParams = params
         }
 
-        // Kategori & Group + Confidence
         val tvCategory = TextView(this).apply {
             text = "${wayangData.category} • ${wayangData.group} • [$confidencePercent%]"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(Color.parseColor("#888888"))
         }
 
-        // Divider
         val divider = View(this).apply {
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -304,7 +315,6 @@ class WayangResultActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#E0E0E0"))
         }
 
-        // Label Deskripsi
         val tvDescLabel = TextView(this).apply {
             text = "Deskripsi Umum"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
@@ -312,7 +322,6 @@ class WayangResultActivity : AppCompatActivity() {
             setTypeface(typeface, Typeface.BOLD)
         }
 
-        // Deskripsi (placeholder, akan diisi oleh AI)
         val tvDescription = TextView(this).apply {
             text = "Memperhalus deskripsi dengan AI..."
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -326,7 +335,6 @@ class WayangResultActivity : AppCompatActivity() {
             setLineSpacing(dpToPx(4).toFloat(), 1f)
         }
 
-        // Label Filosofi
         val tvFilosofiLabel = TextView(this).apply {
             text = "Makna Filosofis"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
@@ -353,7 +361,6 @@ class WayangResultActivity : AppCompatActivity() {
             setLineSpacing(dpToPx(4).toFloat(), 1f)
         }
 
-        // Label Karakteristik / Ciri Visual
         val tvKarakteristikLabel = TextView(this).apply {
             text = "Karakteristik & Ciri Visual"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
@@ -382,7 +389,6 @@ class WayangResultActivity : AppCompatActivity() {
             setLineSpacing(dpToPx(4).toFloat(), 1f)
         }
 
-        // Susun layout
         innerLayout.addView(tvName)
         innerLayout.addView(tvCategory)
         innerLayout.addView(divider)
@@ -394,7 +400,6 @@ class WayangResultActivity : AppCompatActivity() {
         innerLayout.addView(tvKarakteristik)
         cardView.addView(innerLayout)
 
-        // Panggil Groq API untuk deskripsi
         refineDescriptionWithGroq(wayangData.name, wayangData.description, tvDescription)
 
         return cardView
@@ -453,9 +458,7 @@ class WayangResultActivity : AppCompatActivity() {
     }
 
     private fun setupGroqApiClient() {
-        val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
+        val loggingInterceptor = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         val okHttpClient = OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -472,24 +475,15 @@ class WayangResultActivity : AppCompatActivity() {
     private fun uriToBitmap(uri: Uri): Bitmap? {
         return try {
             val inputStream = contentResolver.openInputStream(uri)
-            val options = BitmapFactory.Options().apply {
-                // Pertama, cek ukuran gambar
-                inJustDecodeBounds = true
-            }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeStream(inputStream, null, options)
             inputStream?.close()
 
-            // Hitung sample size jika gambar terlalu besar (>4000px)
             val maxDim = maxOf(options.outWidth, options.outHeight)
             var sampleSize = 1
-            while (maxDim / sampleSize > 4000) {
-                sampleSize *= 2
-            }
+            while (maxDim / sampleSize > 4000) { sampleSize *= 2 }
 
-            // Decode dengan sample size yang tepat
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-            }
+            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
             val inputStream2 = contentResolver.openInputStream(uri)
             val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
             inputStream2?.close()
@@ -500,16 +494,53 @@ class WayangResultActivity : AppCompatActivity() {
         }
     }
 
-    private fun dpToPx(dp: Int): Int {
-        return TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP,
-            dp.toFloat(),
-            resources.displayMetrics
-        ).toInt()
+    private fun getFileFromUri(uri: Uri): File? {
+        return try {
+            val file = File(cacheDir, "temp_wayang_prediction.jpg")
+            val inputStream = contentResolver.openInputStream(uri)
+            val outputStream = FileOutputStream(file)
+            inputStream?.copyTo(outputStream)
+            inputStream?.close()
+            outputStream.close()
+            file
+        } catch (e: Exception) {
+            Log.e("WayangResult", "Error getting file from uri", e)
+            null
+        }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        wayangDetector?.close()
+    private fun dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
+    }
+
+    /**
+     * Helper to map backend coordinates to normalized RectF (0.0 to 1.0).
+     * Handles YOLOv8 [x_center, y_center, width, height] format.
+     */
+    private fun mapToNormalizedRect(box: List<Float>): RectF {
+        if (box.size < 4) return RectF()
+
+        // YOLOv8 often returns [x_center, y_center, width, height]
+        // We need to convert to [left, top, right, bottom]
+        val cx = box[0]
+        val cy = box[1]
+        val w = box[2]
+        val h = box[3]
+
+        // Check if absolute (usually 0-640) or normalized (0-1)
+        val isAbsolute = box.any { it > 1.1f }
+        val scale = if (isAbsolute) 640f else 1.0f
+
+        val left = (cx - w / 2f) / scale
+        val top = (cy - h / 2f) / scale
+        val right = (cx + w / 2f) / scale
+        val bottom = (cy + h / 2f) / scale
+
+        return RectF(
+            left.coerceAtLeast(0f),
+            top.coerceAtLeast(0f),
+            right.coerceAtMost(1f),
+            bottom.coerceAtMost(1f)
+        )
     }
 }

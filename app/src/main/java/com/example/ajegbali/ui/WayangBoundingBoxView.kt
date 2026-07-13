@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
-import com.example.ajegbali.ml.wayang.WayangBoundingBox
 import com.example.ajegbali.ml.wayang.WayangDetectionResult
 
 /**

@@ -1,6 +1,5 @@
 package com.example.ajegbali.feature.ketupat
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -15,31 +14,19 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
 import com.example.ajegbali.R
-import com.example.ajegbali.ml.ketupat.KetupatClassifier
-
-// Import Gson
+import com.example.ajegbali.data.Result
+import com.example.ajegbali.data.remote.repository.PredictionRepository
+import com.example.ajegbali.data.remote.retrofit.ApiConfig
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
-
-// Import YouTube Player
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-
-// Import Coroutines
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-// Import PyTorch
-import org.pytorch.IValue
-import org.pytorch.LiteModuleLoader
-import org.pytorch.Module
-import org.pytorch.torchvision.TensorImageUtils
-
-// Import Retrofit & OkHttp
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -51,7 +38,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
-import kotlin.math.exp
 
 // ==========================================
 // 1. STRUKTUR DATA GROQ API
@@ -116,17 +102,10 @@ class ResultActivity : AppCompatActivity() {
     // --- VARIABEL KATEGORI ---
     private var kategori: String = "JEJAHITAN" // Default
 
-    // --- VARIABEL MODEL JEJAHITAN (PYTORCH) ---
-    private var mModule: Module? = null
-    private var jsonDataJejahitan: List<JejahitanResultModel> = emptyList()
-    private val classNamesJejahitan = arrayOf(
-        "Ceniga", "Ceper", "Ituk-ituk", "Kulit Peras", "Sampian Gantung", "Sampian Kwangen", "Sampian Padma",
-        "Sampian Penyeneng", "Sampian Peras", "Sampian Plaus", "Sampian Sesayut",
-        "Sampian Sri Keliki", "Taledan", "Tamas", "Sampian Penjor", "Lis Senjata", "Sampian Soda", "Sampian Duras"
-    )
+    // --- REPOSITORY ---
+    private lateinit var predictionRepository: PredictionRepository
 
-    // --- VARIABEL MODEL KETUPAT (TFLITE) ---
-    private var ketupatClassifier: KetupatClassifier? = null
+    private var jsonDataJejahitan: List<JejahitanResultModel> = emptyList()
     private var jsonDataKetupat: Map<String, KetupatResultModel> = emptyMap()
 
     // --- VARIABEL GROQ & YOUTUBE ---
@@ -161,6 +140,8 @@ class ResultActivity : AppCompatActivity() {
         lblVideo = findViewById(R.id.lblVideo)
         cardYoutube = findViewById(R.id.cardYoutube)
 
+        // Initialize Repository
+        predictionRepository = PredictionRepository.getInstance(ApiConfig.getInstance())
         setupGroqApiClient()
 
         // Setup YouTube Player
@@ -182,161 +163,130 @@ class ResultActivity : AppCompatActivity() {
         hideVideoSection()
 
         // 4. Proses Eksekusi Berdasarkan Kategori
-        if (kategori == "KETUPAT") {
-            jsonDataKetupat = loadKetupatDataFromJson()
-            // Inisialisasi TFLite di Main Thread (Cepat)
-            ketupatClassifier = KetupatClassifier(this)
-
-            // Tampilkan Gambar dan Lakukan Inferensi
-            val imageUriString = intent.getStringExtra("image_uri")
-            if (imageUriString != null) {
-                val uri = Uri.parse(imageUriString)
-                imgResult.setImageURI(uri)
-                val bitmap = uriToBitmap(uri)
-                if (bitmap != null) {
-                    runInferenceKetupat(bitmap)
+        val imageUriString = intent.getStringExtra("image_uri")
+        if (imageUriString != null) {
+            val uri = Uri.parse(imageUriString)
+            imgResult.setImageURI(uri)
+            
+            val file = getFileFromUri(uri)
+            if (file != null) {
+                if (kategori == "KETUPAT") {
+                    jsonDataKetupat = loadKetupatDataFromJson()
+                    performKetupatPrediction(file)
+                } else {
+                    jsonDataJejahitan = loadJejahitanDataFromJson()
+                    performJejahitanPrediction(file)
                 }
+            } else {
+                showError("Gagal memproses gambar.")
             }
-        } else {
-            // Logika Jejahitan (PyTorch)
-            jsonDataJejahitan = loadJejahitanDataFromJson()
-            Thread {
-                loadModelAndRunInferenceJejahitan()
-            }.start()
         }
 
         btnBack.setOnClickListener { finish() }
     }
 
-    // ==========================================
-    // LOGIKA INFERENSI KETUPAT (TFLITE)
-    // ==========================================
-    private fun runInferenceKetupat(bitmap: Bitmap) {
-        if (ketupatClassifier == null) return
+    private fun performKetupatPrediction(file: File) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val startTime = System.currentTimeMillis()
+            val result = predictionRepository.classifyKetupat(file)
+            val endTime = System.currentTimeMillis()
+            val inferenceTimeMs = endTime - startTime
 
-        // Panggil fungsi klasifikasi dari KetupatClassifier
-        val hasil = ketupatClassifier!!.klasifikasiGambar(bitmap)
-
-        progressBar.visibility = View.GONE
-        txtInferenceTime.text = "Waktu komputasi: ${hasil.waktuEksekusi} ms"
-
-        val THRESHOLD = 0.50f
-        if (hasil.confidence >= THRESHOLD) {
-            val detectedClass = hasil.label
-            val confidencePercent = (hasil.confidence * 100).toInt()
-
-            txtPrediction.text = "[$confidencePercent%] Ketupat $detectedClass"
-            txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
-
-            // Cari di JSON
-            val detailItem = jsonDataKetupat[detectedClass]
-            if (detailItem != null) {
-                txtDescription.text = "Memperhalus deskripsi dengan AI..."
-                txtDescription.setTextColor(Color.GRAY)
-                prepareVideo(detailItem.youtube)
-
-                // Gunakan model generik untuk LLM
-                refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
-            } else {
-                txtDescription.text = "Deskripsi belum tersedia."
-                hideVideoSection()
-            }
-        } else {
-            txtPrediction.text = "Objek Tidak Dikenali"
-            txtPrediction.setTextColor(Color.RED)
-            val conf = (hasil.confidence * 100).toInt()
-            txtDescription.text = "AI kurang yakin ($conf%). Coba foto dari sudut lain."
-            hideVideoSection()
-        }
-    }
-
-    // ==========================================
-    // LOGIKA INFERENSI JEJAHITAN (PYTORCH)
-    // ==========================================
-    private fun loadModelAndRunInferenceJejahitan() {
-        try {
-            if (mModule == null) {
-                val modelPath = assetFilePath(this, "jejahitan_mobile.ptl")
-                mModule = LiteModuleLoader.load(modelPath)
-            }
-            val imageUriString = intent.getStringExtra("image_uri")
-            if (imageUriString != null) {
-                val uri = Uri.parse(imageUriString)
-                runOnUiThread { imgResult.setImageURI(uri) }
-                val bitmap = uriToBitmap(uri)
-                if (bitmap != null && mModule != null) {
-                    runInferenceJejahitan(bitmap)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("AjegBali", "Error Inference", e)
-            runOnUiThread {
+            withContext(Dispatchers.Main) {
                 progressBar.visibility = View.GONE
-                txtPrediction.text = "Error"
-                txtDescription.text = "Gagal memuat model AI."
+                txtInferenceTime.text = "Waktu komputasi: $inferenceTimeMs ms"
+
+                when (result) {
+                    is Result.Success -> {
+                        val response = result.data
+                        val detectedClass = response.className ?: "Unknown"
+                        val confidence = response.confidence ?: 0f
+                        val confidencePercent = (confidence * 100).toInt()
+
+                        txtPrediction.text = "[$confidencePercent%] Ketupat $detectedClass"
+                        txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
+
+                        val detailItem = jsonDataKetupat[detectedClass]
+                        if (detailItem != null) {
+                            txtDescription.text = "Memperhalus deskripsi dengan AI..."
+                            txtDescription.setTextColor(Color.GRAY)
+                            prepareVideo(detailItem.youtube)
+                            refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
+                        } else {
+                            txtDescription.text = "Deskripsi belum tersedia."
+                            hideVideoSection()
+                        }
+                    }
+                    is Result.Error -> {
+                        showError(result.error)
+                    }
+                    else -> {}
+                }
             }
         }
     }
 
-    private fun runInferenceJejahitan(bitmap: Bitmap) {
-        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 256, 256, true)
-        val inputTensor = TensorImageUtils.bitmapToFloat32Tensor(
-            resizedBitmap, TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB
-        )
+    private fun performJejahitanPrediction(file: File) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val startTime = System.currentTimeMillis()
+            val result = predictionRepository.classifyJejahitan(file)
+            val endTime = System.currentTimeMillis()
+            val inferenceTimeMs = endTime - startTime
 
-        val startTime = System.nanoTime()
-        val outputTensor = mModule!!.forward(IValue.from(inputTensor)).toTensor()
-        val endTime = System.nanoTime()
-        val inferenceTimeMs = (endTime - startTime) / 1_000_000
+            withContext(Dispatchers.Main) {
+                progressBar.visibility = View.GONE
+                txtInferenceTime.text = "Waktu komputasi: $inferenceTimeMs ms"
 
-        val logits = outputTensor.dataAsFloatArray
-        val probabilities = softmax(logits)
+                when (result) {
+                    is Result.Success -> {
+                        val response = result.data
+                        val detectedClass = response.className ?: "Unknown"
+                        val confidence = response.confidence ?: 0f
+                        val confidencePercent = (confidence * 100).toInt()
 
-        var maxScore = -Float.MAX_VALUE
-        var maxScoreIdx = -1
-        for (i in probabilities.indices) {
-            if (probabilities[i] > maxScore) {
-                maxScore = probabilities[i]
-                maxScoreIdx = i
+                        txtPrediction.text = "[$confidencePercent%] $detectedClass"
+                        txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
+
+                        val detailItem = jsonDataJejahitan.find { it.nama_jejahitan.equals(detectedClass, ignoreCase = true) }
+                        if (detailItem != null) {
+                            txtDescription.text = "Memperhalus deskripsi dengan AI..."
+                            txtDescription.setTextColor(Color.GRAY)
+                            prepareVideo(detailItem.link_youtube_pembuatan)
+                            refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
+                        } else {
+                            txtDescription.text = "Deskripsi belum tersedia."
+                            hideVideoSection()
+                        }
+                    }
+                    is Result.Error -> {
+                        showError(result.error)
+                    }
+                    else -> {}
+                }
             }
         }
+    }
 
-        runOnUiThread {
-            progressBar.visibility = View.GONE
-            val THRESHOLD = 0.50f
-            txtInferenceTime.text = "Waktu komputasi: ${inferenceTimeMs} ms"
+    private fun showError(message: String) {
+        progressBar.visibility = View.GONE
+        txtPrediction.text = "Objek Tidak Dikenali"
+        txtPrediction.setTextColor(Color.RED)
+        txtDescription.text = message
+        hideVideoSection()
+    }
 
-            if (maxScoreIdx >= 0 && maxScoreIdx < classNamesJejahitan.size) {
-                val confidencePercent = (maxScore * 100).toInt()
-
-                if (maxScore >= THRESHOLD) {
-                    val detectedClass = classNamesJejahitan[maxScoreIdx]
-                    txtPrediction.text = "[$confidencePercent%] $detectedClass"
-                    txtPrediction.setTextColor(Color.parseColor("#8F9E8B"))
-
-                    val detailItem = jsonDataJejahitan.find { it.nama_jejahitan.equals(detectedClass, ignoreCase = true) }
-
-                    if (detailItem != null) {
-                        txtDescription.text = "Memperhalus deskripsi dengan AI..."
-                        txtDescription.setTextColor(Color.GRAY)
-                        prepareVideo(detailItem.link_youtube_pembuatan)
-
-                        // Panggil Groq API
-                        refineDescriptionWithGroq(detectedClass, detailItem.deskripsi)
-                    } else {
-                        txtDescription.text = "Deskripsi belum tersedia."
-                        hideVideoSection()
-                    }
-                } else {
-                    txtPrediction.text = "Objek Tidak Dikenali"
-                    txtPrediction.setTextColor(Color.RED)
-                    txtDescription.text = "AI kurang yakin ($confidencePercent%). Coba foto dari sudut lain."
-                    hideVideoSection()
-                }
-            } else {
-                txtPrediction.text = "Error Klasifikasi"
-                hideVideoSection()
-            }
+    private fun getFileFromUri(uri: Uri): File? {
+        return try {
+            val file = File(cacheDir, "temp_image_prediction.jpg")
+            val inputStream = contentResolver.openInputStream(uri)
+            val outputStream = FileOutputStream(file)
+            inputStream?.copyTo(outputStream)
+            inputStream?.close()
+            outputStream.close()
+            file
+        } catch (e: Exception) {
+            Log.e("ResultActivity", "Error getting file from uri", e)
+            null
         }
     }
 
@@ -395,9 +345,6 @@ class ResultActivity : AppCompatActivity() {
         }
     }
 
-    // ==========================================
-    // FUNGSI PENDUKUNG (JSON, YOUTUBE, DLL)
-    // ==========================================
     private fun setupGroqApiClient() {
         val loggingInterceptor = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         val okHttpClient = OkHttpClient.Builder()
@@ -451,50 +398,5 @@ class ResultActivity : AppCompatActivity() {
         val compiledPattern = Pattern.compile(pattern)
         val matcher = compiledPattern.matcher(url)
         return if (matcher.find()) matcher.group() else null
-    }
-
-    private fun softmax(logits: FloatArray): FloatArray {
-        val expScores = FloatArray(logits.size)
-        var sumExp = 0.0f
-        val maxLogit = logits.maxOrNull() ?: 0.0f
-        for (i in logits.indices) {
-            expScores[i] = exp(logits[i] - maxLogit)
-            sumExp += expScores[i]
-        }
-        val probs = FloatArray(logits.size)
-        for (i in logits.indices) {
-            probs[i] = expScores[i] / sumExp
-        }
-        return probs
-    }
-
-    private fun uriToBitmap(uri: Uri): Bitmap? {
-        return try {
-            val inputStream = contentResolver.openInputStream(uri)
-            BitmapFactory.decodeStream(inputStream)
-        } catch (e: Exception) { null }
-    }
-
-    private fun assetFilePath(context: Context, assetName: String): String {
-        val file = File(context.filesDir, assetName)
-        if (file.exists() && file.length() > 0) return file.absolutePath
-        try {
-            context.assets.open(assetName).use { inputStream ->
-                FileOutputStream(file).use { outputStream ->
-                    val buffer = ByteArray(4 * 1024)
-                    var read: Int
-                    while (inputStream.read(buffer).also { read = it } != -1) {
-                        outputStream.write(buffer, 0, read)
-                    }
-                    outputStream.flush()
-                }
-                return file.absolutePath
-            }
-        } catch (e: Exception) { throw RuntimeException("Error copy asset", e) }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        ketupatClassifier?.tutupModel() // Jangan lupa tutup TFLite untuk mencegah Memory Leak
     }
 }

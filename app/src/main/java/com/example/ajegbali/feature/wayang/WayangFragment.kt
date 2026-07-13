@@ -13,7 +13,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.ajegbali.R
 import com.example.ajegbali.data.model.JejahitanModel
-import com.example.ajegbali.data.repository.WayangRepository
+import com.example.ajegbali.data.remote.repository.WayangRepository
 import com.example.ajegbali.feature.jejahitan.JejahitanAdapter
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 

@@ -6,7 +6,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import com.example.ajegbali.R
-import com.example.ajegbali.data.repository.WayangRepository
+import com.example.ajegbali.data.remote.repository.WayangRepository
 
 class WayangDetailActivity : AppCompatActivity() {
 
