@@ -36,28 +36,27 @@
             android:exported="false" />
 
         <activity
-            android:name=".DetailActivity"
+            android:name="com.example.ajegbali.feature.jejahitan.DetailActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
-
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
             />
 
         <activity
-            android:name=".ScanActivity"
+            android:name="com.example.ajegbali.feature.jejahitan.ScanActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
 
         <activity
-            android:name=".WayangScanActivity"
+            android:name="com.example.ajegbali.feature.wayang.WayangScanActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
 
-        <activity android:name=".ResultActivity" />
-        <activity android:name=".WayangResultActivity" />
-        <activity android:name=".WayangDetailActivity" />
+        <activity android:name="com.example.ajegbali.feature.ketupat.ResultActivity" />
+        <activity android:name="com.example.ajegbali.feature.wayang.WayangResultActivity" />
+        <activity android:name="com.example.ajegbali.feature.wayang.WayangDetailActivity" />
         <activity
-            android:name=".ChatbotActivity"
+            android:name="com.example.ajegbali.feature.chatbot.ChatbotActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 

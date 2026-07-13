@@ -4,6 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.example.ajegbali.feature.chatbot.ChatbotActivity
+import com.example.ajegbali.feature.home.HomeFragment
+import com.example.ajegbali.feature.jejahitan.JejahitanFragment
+import com.example.ajegbali.feature.ketupat.KetupatFragment
+import com.example.ajegbali.feature.wayang.WayangFragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
