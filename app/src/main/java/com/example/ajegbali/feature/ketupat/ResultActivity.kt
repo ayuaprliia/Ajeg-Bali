@@ -1,7 +1,5 @@
 package com.example.ajegbali.feature.ketupat
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +11,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import com.example.ajegbali.BuildConfig
 import com.example.ajegbali.R
 import com.example.ajegbali.data.Result
 import com.example.ajegbali.data.remote.repository.PredictionRepository
@@ -109,7 +108,7 @@ class ResultActivity : AppCompatActivity() {
     private var jsonDataKetupat: Map<String, KetupatResultModel> = emptyMap()
 
     // --- VARIABEL GROQ & YOUTUBE ---
-    private val groqApiKey = "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"
+    private val groqApiKey = BuildConfig.GROQ_API_KEY
     private lateinit var groqApiService: GroqApiService
     private var currentYouTubePlayer: YouTubePlayer? = null
     private var pendingVideoId: String? = null
@@ -310,7 +309,7 @@ class ResultActivity : AppCompatActivity() {
                 """.trimIndent()
 
                 val userPrompt = """
-                    Ringkas deskripsi $jenis "${namaObjek}" berikut:
+                    Ringkas deskripsi $jenis "$namaObjek" berikut:
                     ${deskripsiAsli}
                 """.trimIndent()
 

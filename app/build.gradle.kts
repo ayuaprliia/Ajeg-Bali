@@ -23,8 +23,12 @@ android {
         val properties = Properties()
         properties.load(project.rootProject.file("local.properties").inputStream())
         val apiBaseUrl = properties.getProperty("API_BASE_URL") ?: ""
+        val geminiApiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
+        val groqApiKey = properties.getProperty("GROQ_API_KEY") ?: ""
 
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
     buildTypes {
@@ -63,6 +67,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)

@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import com.example.ajegbali.BuildConfig
 import com.example.ajegbali.R
 import com.example.ajegbali.data.Result
 import com.example.ajegbali.data.model.WayangCharacter
@@ -50,7 +51,7 @@ class WayangResultActivity : AppCompatActivity() {
     private lateinit var predictionRepository: PredictionRepository
 
     // Groq API
-    private val groqApiKey = "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"
+    private val groqApiKey = BuildConfig.GROQ_API_KEY
     private lateinit var groqApiService: GroqApiService
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -487,10 +488,47 @@ class WayangResultActivity : AppCompatActivity() {
             val inputStream2 = contentResolver.openInputStream(uri)
             val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
             inputStream2?.close()
-            bitmap
+            
+            // Koreksi rotasi berdasarkan EXIF metadata
+            if (bitmap != null) {
+                val rotatedBitmap = correctExifRotation(uri, bitmap)
+                if (rotatedBitmap !== bitmap) {
+                    bitmap.recycle()
+                }
+                rotatedBitmap
+            } else {
+                null
+            }
         } catch (e: Exception) {
             Log.e("WayangResult", "Error membaca bitmap", e)
             null
+        }
+    }
+
+    private fun correctExifRotation(uri: Uri, bitmap: Bitmap): Bitmap {
+        return try {
+            val inputStream = contentResolver.openInputStream(uri) ?: return bitmap
+            val exif = android.media.ExifInterface(inputStream)
+            val orientation = exif.getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_NORMAL
+            )
+            inputStream.close()
+
+            val matrix = Matrix()
+            when (orientation) {
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+                else -> return bitmap
+            }
+
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        } catch (e: Exception) {
+            Log.e("WayangResult", "Error koreksi EXIF rotation", e)
+            bitmap
         }
     }
 
@@ -520,14 +558,11 @@ class WayangResultActivity : AppCompatActivity() {
     private fun mapToNormalizedRect(box: List<Float>): RectF {
         if (box.size < 4) return RectF()
 
-        // YOLOv8 often returns [x_center, y_center, width, height]
-        // We need to convert to [left, top, right, bottom]
         val cx = box[0]
         val cy = box[1]
         val w = box[2]
         val h = box[3]
 
-        // Check if absolute (usually 0-640) or normalized (0-1)
         val isAbsolute = box.any { it > 1.1f }
         val scale = if (isAbsolute) 640f else 1.0f
 
@@ -537,10 +572,10 @@ class WayangResultActivity : AppCompatActivity() {
         val bottom = (cy + h / 2f) / scale
 
         return RectF(
-            left.coerceAtLeast(0f),
-            top.coerceAtLeast(0f),
-            right.coerceAtMost(1f),
-            bottom.coerceAtMost(1f)
+            left.coerceIn(0f, 1f),
+            top.coerceIn(0f, 1f),
+            right.coerceIn(0f, 1f),
+            bottom.coerceIn(0f, 1f)
         )
     }
 }

@@ -1,17 +1,23 @@
-package com.example.ajegbali.feature.chatbot
+package com.example.ajegbali
 
 import android.os.Bundle
 import android.util.Log
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.ajegbali.R
 import com.example.ajegbali.data.model.ChatMessage
 import com.example.ajegbali.data.remote.repository.WayangRepository
+import com.example.ajegbali.feature.chatbot.ChatAdapter
+import com.example.ajegbali.feature.chatbot.GeminiApiService
+import com.example.ajegbali.feature.chatbot.GeminiContent
+import com.example.ajegbali.feature.chatbot.GeminiGenerationConfig
+import com.example.ajegbali.feature.chatbot.GeminiPart
+import com.example.ajegbali.feature.chatbot.GeminiRequest
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -39,7 +45,7 @@ class ChatbotActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ChatbotActivity"
         private const val GEMINI_MODEL = "gemini-2.5-flash"
-        private const val GEMINI_API_KEY = "AQ.Ab8RN6K4yRjTiSwKg39d6WHRI8kM5IkpCYLSRx_uaPJ7oN9eGQ"
+        private const val GEMINI_API_KEY = BuildConfig.GEMINI_API_KEY
         private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/"
     }
 
@@ -136,6 +142,8 @@ ATURAN KETAT:
 4. DILARANG menggunakan format Markdown (seperti ** untuk bold, # untuk heading, atau * untuk italic)
 5. Jawab dalam format paragraf yang rapi dan mudah dibaca
 6. Maksimal 3 paragraf per jawaban agar ringkas dan padat
+7. JANGAN SAMPAI ada jawaban yang TERPOTONG, jawaban harus berupa kalimat lengkap dan terpadu
+8. Jika pengguna menanyakan CARA PEMBUATAN jejahitan atau ketupat yang ADA dalam data lokal dan data tersebut memiliki link YouTube, SERTAKAN link YouTube-nya dalam jawaban. Format: "Untuk tutorial pembuatannya, Semeton bisa menyaksikan video berikut: [link]". DILARANG KERAS mengarang atau membuat link YouTube sendiri. Hanya gunakan link yang tersedia dalam data lokal.
 
 DATA JEJAHITAN (18 jenis):
 $jejahitanData
@@ -162,7 +170,8 @@ $wayangData
             dataList.joinToString("\n\n") { item ->
                 val nama = item["nama_jejahitan"] ?: ""
                 val deskripsi = item["deskripsi"] ?: ""
-                "• $nama: $deskripsi"
+                val youtube = item["link_youtube_pembuatan"] ?: ""
+                "• $nama: $deskripsi\nLink YouTube Pembuatan: $youtube"
             }
         } catch (e: Exception) {
             Log.e(TAG, "Gagal memuat data jejahitan", e)
@@ -178,7 +187,8 @@ $wayangData
 
             dataMap.entries.joinToString("\n\n") { (nama, detail) ->
                 val deskripsi = detail["deskripsi"] ?: ""
-                "• Ketupat $nama: $deskripsi"
+                val youtube = detail["youtube"] ?: ""
+                "• Ketupat $nama: $deskripsi\nLink YouTube Pembuatan: $youtube"
             }
         } catch (e: Exception) {
             Log.e(TAG, "Gagal memuat data ketupat", e)
@@ -262,6 +272,7 @@ Ciri Visual: ${char.visualTraits.joinToString(", ")}"""
         lifecycleScope.launch {
             try {
                 val response = callGeminiApi()
+                Log.d("GEMINI", response.toString())
 
                 // Hapus loading message
                 chatMessages.removeAt(chatMessages.size - 1)
