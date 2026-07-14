@@ -122,8 +122,14 @@ class WayangScanActivity : AppCompatActivity() {
     }
 
     private fun setupWebSocket() {
-        val baseUrl = BuildConfig.API_BASE_URL.replace("http", "ws")
-        val wsUrl = "$baseUrl/ws/detect-wayang"
+        // ngrok often uses https -> wss
+        val baseUrl = BuildConfig.API_BASE_URL
+            .replace("https://", "wss://")
+            .replace("http://", "ws://")
+            
+        val wsUrl = if (baseUrl.endsWith("/")) "${baseUrl}ws/detect-wayang" else "$baseUrl/ws/detect-wayang"
+        
+        Log.d(TAG, "Initializing WebSocket at: $wsUrl")
         
         wsClient = WayangWebSocketClient(
             url = wsUrl,
@@ -160,6 +166,7 @@ class WayangScanActivity : AppCompatActivity() {
 
             imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetResolution(android.util.Size(640, 480))
                 .build()
                 .also { analysis ->
                     analysis.setAnalyzer(cameraExecutor!!) { imageProxy ->

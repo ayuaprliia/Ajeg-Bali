@@ -67,7 +67,7 @@ object ImageUtils {
         return nv21
     }
 
-    fun bitmapToBase64(bitmap: Bitmap, quality: Int = 70): String {
+    fun bitmapToBase64(bitmap: Bitmap, quality: Int = 50): String {
         val outputStream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
         val byteArray = outputStream.toByteArray()
