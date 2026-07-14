@@ -37,7 +37,7 @@ class ChatbotActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ChatbotActivity"
         private const val GEMINI_MODEL = "gemini-2.5-flash"
-        private const val GEMINI_API_KEY = "AQ.Ab8RN6K4yRjTiSwKg39d6WHRI8kM5IkpCYLSRx_uaPJ7oN9eGQ"
+        private const val GEMINI_API_KEY = ""
         private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/"
     }
 
