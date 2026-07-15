@@ -3,6 +3,7 @@ package com.example.ajegbali.data.remote.websocket
 import android.graphics.RectF
 import android.util.Log
 import com.example.ajegbali.ml.wayang.WayangDetectionResult
+import com.example.ajegbali.utils.DetectionUtils
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import okhttp3.*
@@ -16,20 +17,28 @@ class WayangWebSocketClient(
     private var webSocket: WebSocket? = null
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
 
     fun connect() {
         Log.d("WayangWS", "Connecting to: $url")
-        val request = Request.Builder().url(url).build()
+        
+        // Add Origin header to avoid 403 Forbidden on AWS App Runner/FastAPI
+        val origin = url.replace("wss://", "https://").replace("ws://", "http://")
+        
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Origin", origin)
+            .addHeader("User-Agent", "AjegBali-Android-App")
+            .build()
+
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("WayangWS", "WebSocket Opened")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d("WayangWS", "Message Received: ${text.take(100)}...")
                 try {
                     val jsonResponse = gson.fromJson(text, JsonObject::class.java)
                     if (jsonResponse.has("error")) {
@@ -93,8 +102,10 @@ class WayangWebSocketClient(
                         }
                     }
 
-                    Log.d("WayangWS", "Parsed ${detections.size} detections")
-                    onResult(detections)
+                    Log.d("WayangWS", "Parsed ${detections.size} raw detections")
+                    val filtered = DetectionUtils.performNMS(detections)
+                    Log.d("WayangWS", "After NMS: ${filtered.size} detections")
+                    onResult(filtered)
                     
                 } catch (e: Exception) {
                     Log.e("WayangWS", "Error parsing message", e)
@@ -102,8 +113,14 @@ class WayangWebSocketClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("WayangWS", "Connection Failure: ${t.message}", t)
-                onError(t.message ?: "Connection failure")
+                val code = response?.code
+                Log.e("WayangWS", "Connection Failure: ${t.message} (Code: $code)", t)
+                
+                if (code == 403) {
+                    onError("Forbidden (403): Check CORS or Origin settings on AWS App Runner.")
+                } else {
+                    onError(t.message ?: "Connection failure")
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -113,28 +130,23 @@ class WayangWebSocketClient(
         })
     }
 
+    /**
+     * Converts a [cx, cy, w, h] bounding box from the backend into a normalized [0, 1] RectF.
+     */
     private fun mapToNormalizedRect(box: List<Float>): RectF {
         val cx = box[0]
         val cy = box[1]
-        val w = box[2]
-        val h = box[3]
-        
-        val isAbsolute = box.any { it > 1.1f }
-        val scale = if (isAbsolute) 640f else 1.0f
+        val w  = box[2]
+        val h  = box[3]
 
-        return RectF(
-            ((cx - w / 2f) / scale).coerceIn(0f, 1f),
-            ((cy - h / 2f) / scale).coerceIn(0f, 1f),
-            ((cx + w / 2f) / scale).coerceIn(0f, 1f),
-            ((h + cy / 2f) / scale).coerceIn(0f, 1f) // Wait, h + cy/2? No, cx + w/2 and cy + h/2
-        ).apply {
-            // Re-correcting the math inline for standard xywh
-            val l = (cx - w / 2f) / scale
-            val t = (cy - h / 2f) / scale
-            val r = (cx + w / 2f) / scale
-            val b = (cy + h / 2f) / scale
-            set(l.coerceIn(0f, 1f), t.coerceIn(0f, 1f), r.coerceIn(0f, 1f), b.coerceIn(0f, 1f))
-        }
+        val scale = if (box.any { it > 1.1f }) 640f else 1.0f
+
+        val left   = ((cx - w / 2f) / scale).coerceIn(0f, 1f)
+        val top    = ((cy - h / 2f) / scale).coerceIn(0f, 1f)
+        val right  = ((cx + w / 2f) / scale).coerceIn(0f, 1f)
+        val bottom = ((cy + h / 2f) / scale).coerceIn(0f, 1f)
+
+        return RectF(left, top, right, bottom)
     }
 
     fun sendImage(base64Image: String) {

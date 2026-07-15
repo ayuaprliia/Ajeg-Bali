@@ -21,6 +21,7 @@ import com.example.ajegbali.ml.wayang.WayangDetectionResult
 import com.example.ajegbali.feature.ketupat.GroqMessage
 import com.example.ajegbali.feature.ketupat.GroqRequest
 import com.example.ajegbali.feature.ketupat.GroqApiService
+import com.example.ajegbali.utils.ImageUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,9 +31,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
-import android.graphics.BitmapFactory
 import java.io.File
-import java.io.FileOutputStream
 
 class WayangResultActivity : AppCompatActivity() {
 
@@ -89,10 +88,16 @@ class WayangResultActivity : AppCompatActivity() {
         val imageUriString = intent.getStringExtra("image_uri")
         if (imageUriString != null) {
             val uri = Uri.parse(imageUriString)
-            val bitmap = uriToBitmap(uri)
-            val file = getFileFromUri(uri)
             
-            if (bitmap != null && file != null) {
+            // 1. Dapatkan bitmap yang sudah diputar (upright)
+            val bitmap = ImageUtils.getRotatedBitmapFromUri(this, uri)
+            
+            if (bitmap != null) {
+                // 2. Simpan bitmap upright tersebut ke file sementara untuk dikirim ke backend
+                val file = File(cacheDir, "temp_wayang_prediction.jpg")
+                ImageUtils.saveBitmapToFile(bitmap, file)
+                
+                // 3. Jalankan deteksi
                 runDetection(bitmap, file)
             } else {
                 progressBar.visibility = View.GONE
@@ -471,80 +476,6 @@ class WayangResultActivity : AppCompatActivity() {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         groqApiService = retrofit.create(GroqApiService::class.java)
-    }
-
-    private fun uriToBitmap(uri: Uri): Bitmap? {
-        return try {
-            val inputStream = contentResolver.openInputStream(uri)
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeStream(inputStream, null, options)
-            inputStream?.close()
-
-            val maxDim = maxOf(options.outWidth, options.outHeight)
-            var sampleSize = 1
-            while (maxDim / sampleSize > 4000) { sampleSize *= 2 }
-
-            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val inputStream2 = contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
-            inputStream2?.close()
-            
-            // Koreksi rotasi berdasarkan EXIF metadata
-            if (bitmap != null) {
-                val rotatedBitmap = correctExifRotation(uri, bitmap)
-                if (rotatedBitmap !== bitmap) {
-                    bitmap.recycle()
-                }
-                rotatedBitmap
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            Log.e("WayangResult", "Error membaca bitmap", e)
-            null
-        }
-    }
-
-    private fun correctExifRotation(uri: Uri, bitmap: Bitmap): Bitmap {
-        return try {
-            val inputStream = contentResolver.openInputStream(uri) ?: return bitmap
-            val exif = android.media.ExifInterface(inputStream)
-            val orientation = exif.getAttributeInt(
-                android.media.ExifInterface.TAG_ORIENTATION,
-                android.media.ExifInterface.ORIENTATION_NORMAL
-            )
-            inputStream.close()
-
-            val matrix = Matrix()
-            when (orientation) {
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
-                androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
-                else -> return bitmap
-            }
-
-            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        } catch (e: Exception) {
-            Log.e("WayangResult", "Error koreksi EXIF rotation", e)
-            bitmap
-        }
-    }
-
-    private fun getFileFromUri(uri: Uri): File? {
-        return try {
-            val file = File(cacheDir, "temp_wayang_prediction.jpg")
-            val inputStream = contentResolver.openInputStream(uri)
-            val outputStream = FileOutputStream(file)
-            inputStream?.copyTo(outputStream)
-            inputStream?.close()
-            outputStream.close()
-            file
-        } catch (e: Exception) {
-            Log.e("WayangResult", "Error getting file from uri", e)
-            null
-        }
     }
 
     private fun dpToPx(dp: Int): Int {
