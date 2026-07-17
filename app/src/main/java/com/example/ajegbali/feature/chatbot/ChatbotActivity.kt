@@ -1,4 +1,4 @@
-package com.example.ajegbali
+package com.example.ajegbali.feature.chatbot
 
 import android.os.Bundle
 import android.util.Log
@@ -10,6 +10,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.ajegbali.BuildConfig
+import com.example.ajegbali.R
 import com.example.ajegbali.data.model.ChatMessage
 import com.example.ajegbali.data.remote.repository.WayangRepository
 import com.example.ajegbali.feature.chatbot.ChatAdapter
